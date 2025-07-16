@@ -3,6 +3,7 @@ from streamlit import session_state as sts
 from llm_response import get_supported_models, provider_info
 from logging_utils import post_env_args
 from api_server import HOST, PORT
+import subprocess
 # Initialize session state variables
 # Global variables for session state initialization
 
@@ -157,7 +158,16 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.warning("The Website is Under Development.")
+    try:
+        commit_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], 
+                                            cwd='/home/anirudhgupta/LeanAide',
+                                            stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        branch_name = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], 
+                                            cwd='/home/anirudhgupta/LeanAide',
+                                            stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        st.info(f"Latest Commit Build: `{branch_name}`:[{commit_hash}](https://github.com/AnirudhG07/LeanAide/commit/{commit_hash})")
+    except:
+        st.info("Latest Commit Build: [unavailable]")
 
     with st.expander("Other LeanAide Settings", expanded=False):
         st.info("These are side default settings, you may safely ignore them. More settings on top-right 3-dot menu.")
