@@ -1,4 +1,4 @@
-from transformers import pipeline
+from transformers import pipeline, AutoProcessor, Gemma3nForConditionalGeneration
 import torch
 import os
 from huggingface_hub import login
@@ -11,15 +11,19 @@ login(token=HUGGING_FACE_TOKEN)
 # For fast download
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
-# snapshot_download(repo_id="google/gemma-3n-e4b-it", repo_type="model")
-
 torch.set_float32_matmul_precision('high')
-pipe = pipeline(
-    "image-text-to-text",
-    model="google/gemma-3n-E4B-it",
-    device="cuda",
-    torch_dtype=torch.bfloat16,
-)
+# pipe = pipeline(
+#     "image-text-to-text",
+#     model="google/gemma-3n-E4B-it",
+#     device="cuda",
+#     torch_dtype=torch.bfloat16,
+# )
+
+model_id = "google/gemma-3n-E4B-it"
+
+model = Gemma3nForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16,).eval()
+
+processor = AutoProcessor.from_pretrained(model_id)
 
 def generate_text(sys_prompt, prompt):
     messages = [
@@ -35,8 +39,25 @@ def generate_text(sys_prompt, prompt):
         }
     ]
 
-    output = pipe(text=messages, max_new_tokens=16384, do_sample=False)
-    output = output[0]["generated_text"][-1]["content"]
+    # output = pipe(text=messages, max_new_tokens=16384, do_sample=False)
+    # output = output[0]["generated_text"][-1]["content"]
+
+    inputs = processor.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+    ).to(model.device)
+
+    input_len = inputs["input_ids"].shape[-1]
+
+    with torch.inference_mode():
+        generation = model.generate(**inputs, max_new_tokens=100, do_sample=False)
+        generation = generation[0][input_len:]
+        
+    output = processor.decode(generation, skip_special_tokens=True)
+ 
     # only extract inside the json code block
     if output.startswith("```json"):
         output = output.strip("```json").strip("```").strip()
@@ -44,7 +65,7 @@ def generate_text(sys_prompt, prompt):
         output = output.strip("```").strip()
     return output
 
-with open("./hf_prompt.txt", "r") as f:
+with open("./prompt_intent.md", "r") as f:
     sys_prompt = f.read()
 
 long_input = """
@@ -193,6 +214,11 @@ Structured JSON is given, make lean code from it and elaborate it.
 ```
 """
 
-# prompt = "Generated detailed theorem translation for theorem, '1+1 = 2'"
 if __name__ == "__main__":
-    print(generate_text(sys_prompt, long_input))
+    # input = "Can you rewrite the above proof."
+    input = "Generated lean code for the structured json."
+    import time
+    start_time = time.time()
+    print(generate_text(sys_prompt, input))
+    end_time = time.time()
+    print(f"Time taken: {end_time - start_time} seconds")
