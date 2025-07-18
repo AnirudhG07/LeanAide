@@ -58,3 +58,16 @@ theorem kernel_is_a_submodule {V W : Type*} [AddCommGroup V] [AddCommGroup W] [M
   -- The condition then becomes the definition of the kernel, which is true by reflexivity.
   intro x
   exact LinearMap.mem_ker -- T (corrected)
+
+example : ∀ n : ℕ, (fun x => 1 + x)^[n] 0 = n  := by
+  intro n
+  induction n with
+  | zero => aesop
+  | succ n ih => aesop
+
+example : ∀ f: ℕ → ℕ, f 0 = 0 → (∀ n: ℕ, f (n + 1) = f n + 1) → ∀ n: ℕ, f n = n := by
+  intro f h₁ h₂ n
+  induction n with
+  | zero => aesop
+  | succ n ih =>
+    aesop
