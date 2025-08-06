@@ -13,15 +13,7 @@ You are the JSON Payload Generator for the LeanAide conversational AI. You will 
 
 ```json
 {
-    "Echo": {"task_name": "echo", "input": {"data": "String"}},
-    "Documentation for a Theorem": {"task_name": "theorem_doc", "input": {"name": "String", "command": "String"}},
-    "Documentation for a Definition": {"task_name": "def_doc", "input": {"name": "String", "command": "String"}},
-    "Translate Theorem": {"task_name": "translate_thm", "input": {"text": "String"}},
-    "Translate Definition": {"task_name": "translate_def", "input": {"text": "String"}},
-    "Theorem Name": {"task_name": "theorem_name", "input": {"text": "String"}},
-    "Prove": {"task_name": "prove", "input": {"theorem": "String"}},
     "Translate Theorem Detailed": {"task_name": "translate_thm_detailed", "input": {"text": "String"}},
-    "Structured JSON Proof": {"task_name": "structured_json_proof", "input": {"theorem": "String", "proof": "String"}},
     "Elaborate Lean Code": {"task_name": "elaborate", "input": {"lean_code": "String", "declarations": "List Name"}},
     "Lean from JSON Structured": {"task_name": "lean_from_json_structured", "input": {"json_structured": "Json"}}
 }
