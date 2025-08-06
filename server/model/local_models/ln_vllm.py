@@ -10,7 +10,7 @@ import time
 
 # --- 1. Environment and Token Setup ---
 # Load environment variables from a .env file
-load_dotenv("../../.env")
+load_dotenv("../../../.env")
 
 # Login to Hugging Face Hub
 HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN")

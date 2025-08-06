@@ -2,6 +2,7 @@ import base64
 import json
 import os
 from jsonschema import validate, ValidationError
+from enum import Enum
 
 import pymupdf
 import streamlit as st
@@ -14,77 +15,102 @@ from logging_utils import log_write
 
 load_dotenv(os.path.join(HOMEDIR, ".env"))
 
-provider_info = {
-    "OpenAI": {
-        "name": "OpenAI",
-        "default_model": "o4-mini",
-        "default_leanaide_model": "gpt-4o",
-        "api_key": os.getenv("OPENAI_API_KEY", "Key Not Found"),
-        "models_url":"https://platform.openai.com/docs/models"
-    },
-    "Gemini": {
-        "name": "Gemini",
-        "default_model": "gemini-1.5-pro",
-        "default_leanaide_model": "gemini-1.5-pro",
-        "api_key": os.getenv("GEMINI_API_KEY", "Key Not Found"),
-        "models_url": "https://developers.generativeai.google/models"
-    },
-    "OpenRouter": {
-        "name": "OpenRouter",
-        "default_model": "openai/gpt-4o",
-        "default_leanaide_model": "openai/gpt-4o",
-        "api_key": os.getenv("OPENROUTER_API_KEY", "Key Not Found"),
-        "models_url": "https://openrouter.ai/models"
-    },
-    "DeepInfra": {
-        "name": "DeepInfra",
-        "default_model": "deepseek-ai/DeepSeek-R1-0528",
-        "default_leanaide_model": "deepseek-ai/DeepSeek-R1-0528",
-        "api_key": os.getenv("DEEPINFRA_API_KEY", "Key Not Found"),
-        "models_url": "https://deepinfra.com/models"
-    }
-}
+class Provider(Enum):
+    OPENAI = "openai"
+    GEMINI = "gemini"
+    OPENROUTER = "openrouter"
+    DEEPINFRA = "deepinfra"
 
-# Extract API keys for backwards compatibility
-OPENAI_API_KEY = provider_info["OpenAI"]["api_key"]
-GEMINI_API_KEY = provider_info["Gemini"]["api_key"]
-OPENROUTER_API_KEY = provider_info["OpenRouter"]["api_key"]
-DEEPINFRA_API_KEY = provider_info["DeepInfra"]["api_key"]
+    def __new__(cls, provider_name):
+        obj = object.__new__(cls)
+        obj._value_ = provider_name
+        return obj
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
-gemini_client = OpenAI(api_key=GEMINI_API_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
-openrouter_client = OpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
-deepinfra_client = OpenAI(api_key=DEEPINFRA_API_KEY, base_url="https://api.deepinfra.com/v1/openai")
+    def __init__(self, provider_name):
+        PROVIDER_CONFIG = {
+            "openai": {
+                "name": "OpenAI",
+                "default_model": "o4-mini",
+                "default_leanaide_model": "gpt-4o",
+                "api_key_env": "OPENAI_API_KEY",
+                "models_url": "https://platform.openai.com/docs/models",
+                "base_url": ""
+            },
+            "gemini": {
+                "name": "Gemini",
+                "default_model": "gemini-1.5-pro",
+                "default_leanaide_model": "gemini-1.5-pro",
+                "api_key_env": "GEMINI_API_KEY",
+                "models_url": "https://developers.generativeai.google/models",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
+            },
+            "openrouter": {
+                "name": "OpenRouter",
+                "default_model": "openai/gpt-4o",
+                "default_leanaide_model": "openai/gpt-4o",
+                "api_key_env": "OPENROUTER_API_KEY",
+                "models_url": "https://openrouter.ai/models",
+                "base_url": "https://openrouter.ai/api/v1"
+            },
+            "deepinfra": {
+                "name": "DeepInfra",
+                "default_model": "deepseek-ai/DeepSeek-R1-0528",
+                "default_leanaide_model": "deepseek-ai/DeepSeek-R1-0528",
+                "api_key_env": "DEEPINFRA_API_KEY",
+                "models_url": "https://deepinfra.com/models",
+                "base_url": "https://api.deepinfra.com/v1/openai"
+            }
+        }
+        
+        config = PROVIDER_CONFIG[provider_name]
+        self.name = config["name"]
+        self.default_model = config["default_model"]
+        self.default_leanaide_model = config["default_leanaide_model"]
+        self.api_key = os.getenv(config["api_key_env"], "Key Not Found")
+        self.models_url = config["models_url"]
+        self.base_url = config["base_url"]
 
-def match_provider_client(provider: str = "openai"):
-    provider = provider.lower()
-    if provider == "openai":
-        return openai_client
-    elif provider == "gemini":
-        return gemini_client
-    elif provider == "openrouter":
-        return openrouter_client
-    elif provider == "deepinfra":
-        return deepinfra_client
-    else:
-        return openai_client  # Default to OpenAI if provider is not recognized
+    def create_client(self):
+        """
+        Create an OpenAI client based on the provider's configuration.
+        """
+        if self.base_url:
+            return OpenAI(api_key=self.api_key, base_url=self.base_url)
+        return OpenAI(api_key=self.api_key)
 
+    @staticmethod
+    def provider_client(provider: str):
+        """
+        Get the OpenAI client for the provider.
+        """
+        provider = provider.lower()
+        if provider == "openai":
+            provider_enum = Provider.OPENAI
+        elif provider == "gemini":
+            provider_enum = Provider.GEMINI
+        elif provider == "openrouter":
+            provider_enum = Provider.OPENROUTER
+        elif provider == "deepinfra":
+            provider_enum = Provider.DEEPINFRA
+        else:
+            provider_enum = Provider.OPENAI  # Default to OpenAI if provider is not recognized
+        return provider_enum.create_client()
 
-## Get model list supported by API KEY
-def get_supported_models(provider):
-    """
-    Get the list of models supported by the OpenAI API key.
-    """
-    client = match_provider_client(provider)
-    try:
-        models = client.models.list()
-        return [model.id for model in models.data]
-    except Exception as e:
-        st.error(f"Error fetching models: {e}")
-        return []
+    @staticmethod
+    def get_supported_models(provider: str):
+        """
+        Get the list of models supported by the OpenAI API key.
+        """
+        client = Provider.provider_client(provider)
+        try:
+            models = client.models.list()
+            return [model.id for model in models.data]
+        except Exception as e:
+            st.error(f"Error fetching models: {e}")
+            return []
 
 def get_pdf_id(pdf_path: str, provider: str = "openai"):
-    client = match_provider_client(provider)
+    client = Provider.provider_client(provider)
     file = client.files.create(
         file=open(pdf_path, "rb"),
         purpose="user_data"
@@ -100,7 +126,7 @@ def image_solution(image_path: str, provider = "openai", model: str = "gpt-4o"):
     image_encoded = encode_image(image_path) 
     prompt = "Extract text using LaTeX from the given mathematics as images. DO NOT include any other text in the response. Do not write extra proofs or explanations."
 
-    client = match_provider_client(provider)
+    client = Provider.provider_client(provider)
     log_write("llm_query", f"Querying model {model} for image solution with prompt: {prompt[:25]}...")
     response = client.chat.completions.create(
         model=model,
@@ -188,7 +214,7 @@ def model_response_gen(prompt:str, task:str = "", provider = "openai", model:str
             }
         }) 
 
-    client = match_provider_client(provider)
+    client = Provider.provider_client(provider)
     if json_output:
         log_write("llm_query", f"Querying model {model} for JSON output with prompt: {prompt[:25]}...")
         response = client.chat.completions.create(
@@ -262,7 +288,7 @@ def check_reprompt(thm: str, pf: str, output: str, provider = "openai", model: s
             st.toast(f"Validation Error: {e}")
 
             # re-prompt the model with the error message
-            output = reprompt_gen_thmpf_json(thm, pf, output, e, provider, model)
+            output = reprompt_gen_thmpf_json(thm, pf, output, str(e), provider, model)
         
         except Exception as e:
             st.toast(f"Some other error: {e}")

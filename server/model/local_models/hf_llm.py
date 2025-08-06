@@ -3,7 +3,7 @@ import torch
 import os
 from huggingface_hub import login
 from dotenv import load_dotenv
-load_dotenv("../../.env")
+load_dotenv("../../../.env")
 
 HUGGING_FACE_TOKEN = os.getenv("HUGGING_FACE_TOKEN")
 login(token=HUGGING_FACE_TOKEN)
