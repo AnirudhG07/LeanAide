@@ -1,19 +1,55 @@
 import base64
 import json
 import os
-from jsonschema import validate, ValidationError
 from enum import Enum
 
 import pymupdf
 import streamlit as st
 from dotenv import load_dotenv
+from jsonschema import ValidationError, validate
 from openai import OpenAI
 
-from llm_prompts import thmpf_prompt, thmpf_reprompt, soln_from_image_prompt, mathpaper_prompt
-from serv_utils import SCHEMA_JSON, HOMEDIR
+from llm_prompts import (mathpaper_prompt, soln_from_image_prompt,
+                         thmpf_prompt, thmpf_reprompt)
 from logging_utils import log_write
+from serv_utils import HOMEDIR, SCHEMA_JSON
 
 load_dotenv(os.path.join(HOMEDIR, ".env"))
+
+PROVIDER_CONFIG = {
+    "openai": {
+        "name": "OpenAI",
+        "default_model": "o4-mini",
+        "default_leanaide_model": "gpt-4o",
+        "api_key_env": "OPENAI_API_KEY",
+        "models_url": "https://platform.openai.com/docs/models",
+        "base_url": ""
+    },
+    "gemini": {
+        "name": "Gemini",
+        "default_model": "gemini-1.5-pro",
+        "default_leanaide_model": "gemini-1.5-pro",
+        "api_key_env": "GEMINI_API_KEY",
+        "models_url": "https://developers.generativeai.google/models",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
+    },
+    "openrouter": {
+        "name": "OpenRouter",
+        "default_model": "openai/gpt-4o",
+        "default_leanaide_model": "openai/gpt-4o",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "models_url": "https://openrouter.ai/models",
+        "base_url": "https://openrouter.ai/api/v1"
+    },
+    "deepinfra": {
+        "name": "DeepInfra",
+        "default_model": "deepseek-ai/DeepSeek-R1-0528",
+        "default_leanaide_model": "deepseek-ai/DeepSeek-R1-0528",
+        "api_key_env": "DEEPINFRA_API_KEY",
+        "models_url": "https://deepinfra.com/models",
+        "base_url": "https://api.deepinfra.com/v1/openai"
+    }
+}
 
 class Provider(Enum):
     OPENAI = "openai"
@@ -27,106 +63,79 @@ class Provider(Enum):
         return obj
 
     def __init__(self, provider_name):
-        PROVIDER_CONFIG = {
-            "openai": {
-                "name": "OpenAI",
-                "default_model": "o4-mini",
-                "default_leanaide_model": "gpt-4o",
-                "api_key_env": "OPENAI_API_KEY",
-                "models_url": "https://platform.openai.com/docs/models",
-                "base_url": ""
-            },
-            "gemini": {
-                "name": "Gemini",
-                "default_model": "gemini-1.5-pro",
-                "default_leanaide_model": "gemini-1.5-pro",
-                "api_key_env": "GEMINI_API_KEY",
-                "models_url": "https://developers.generativeai.google/models",
-                "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
-            },
-            "openrouter": {
-                "name": "OpenRouter",
-                "default_model": "openai/gpt-4o",
-                "default_leanaide_model": "openai/gpt-4o",
-                "api_key_env": "OPENROUTER_API_KEY",
-                "models_url": "https://openrouter.ai/models",
-                "base_url": "https://openrouter.ai/api/v1"
-            },
-            "deepinfra": {
-                "name": "DeepInfra",
-                "default_model": "deepseek-ai/DeepSeek-R1-0528",
-                "default_leanaide_model": "deepseek-ai/DeepSeek-R1-0528",
-                "api_key_env": "DEEPINFRA_API_KEY",
-                "models_url": "https://deepinfra.com/models",
-                "base_url": "https://api.deepinfra.com/v1/openai"
-            }
-        }
-        
         config = PROVIDER_CONFIG[provider_name]
-        self.name = config["name"]
+        self.provider = provider_name
+        self._name = config["name"]
         self.default_model = config["default_model"]
         self.default_leanaide_model = config["default_leanaide_model"]
-        self.api_key = os.getenv(config["api_key_env"], "Key Not Found")
+        self.api_key_env = config["api_key_env"]
         self.models_url = config["models_url"]
         self.base_url = config["base_url"]
+        self._client = None  # Lazy initialization
 
-    def create_client(self):
-        """
-        Create an OpenAI client based on the provider's configuration.
-        """
-        if self.base_url:
-            return OpenAI(api_key=self.api_key, base_url=self.base_url)
-        return OpenAI(api_key=self.api_key)
+    @property
+    def name(self):
+        return self._name
 
-    @staticmethod
-    def provider_client(provider: str):
-        """
-        Get the OpenAI client for the provider.
-        """
-        provider = provider.lower()
-        if provider == "openai":
-            provider_enum = Provider.OPENAI
-        elif provider == "gemini":
-            provider_enum = Provider.GEMINI
-        elif provider == "openrouter":
-            provider_enum = Provider.OPENROUTER
-        elif provider == "deepinfra":
-            provider_enum = Provider.DEEPINFRA
-        else:
-            provider_enum = Provider.OPENAI  # Default to OpenAI if provider is not recognized
-        return provider_enum.create_client()
+    @property
+    def api_key(self):
+        key = os.getenv(self.api_key_env)
+        if not key:
+            key = "N/A"
+        return key
+
+    @property
+    def client(self):
+        """Lazy-loaded client property"""
+        if self._client is None:
+            self._client = self._create_client()
+        return self._client
+
+    def _create_client(self):
+        """Create the appropriate client for the provider"""
+        if self.value == "openai":
+            return OpenAI(api_key=self.api_key)
+        return OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+    @classmethod
+    def from_str(cls, provider_str: str):
+        """Get enum member from string (case-insensitive) with fallback to OpenAI"""
+        try:
+            return cls(provider_str.lower())
+        except ValueError:
+            return cls.OPENAI
 
     @staticmethod
     def get_supported_models(provider: str):
         """
-        Get the list of models supported by the OpenAI API key.
+        Get the list of models supported by the provider.
         """
-        client = Provider.provider_client(provider)
+        provider_enum = Provider.from_str(provider)
         try:
-            models = client.models.list()
+            models = provider_enum.client.models.list()
             return [model.id for model in models.data]
         except Exception as e:
-            st.error(f"Error fetching models: {e}")
+            log_write("llm_query", f"Error fetching models for {provider}: {e}")
             return []
 
-def get_pdf_id(pdf_path: str, provider: str = "openai"):
-    client = Provider.provider_client(provider)
+def get_pdf_id(pdf_path: str, provider: Provider = Provider.OPENAI):
+    client = provider.client
     file = client.files.create(
         file=open(pdf_path, "rb"),
         purpose="user_data"
     )
-    return file
+    return file 
 
 ## Images
 def encode_image(image_path):
   with open(image_path, "rb") as image_file:
     return base64.b64encode(image_file.read()).decode('utf-8')
 
-def image_solution(image_path: str, provider = "openai", model: str = "gpt-4o"):
+def image_solution(image_path: str, provider: Provider = Provider.OPENAI, model: str = "gpt-4o"):
     image_encoded = encode_image(image_path) 
     prompt = "Extract text using LaTeX from the given mathematics as images. DO NOT include any other text in the response. Do not write extra proofs or explanations."
 
-    client = Provider.provider_client(provider)
+    client = provider.client
     log_write("llm_query", f"Querying model {model} for image solution with prompt: {prompt[:25]}...")
     response = client.chat.completions.create(
         model=model,
@@ -157,7 +166,7 @@ def image_solution(image_path: str, provider = "openai", model: str = "gpt-4o"):
         response_txt = response_txt.strip("```latex").strip("```")
     return response_txt
 
-def solution_from_images(image_paths, provider = "openai", model: str = "gpt-4o"):
+def solution_from_images(image_paths, provider: Provider = Provider.OPENAI, model: str = "gpt-4o"):
     combined_text = ""
     for image_path in image_paths:
         response = image_solution(image_path)
@@ -172,7 +181,7 @@ def extract_text_from_pdf(path: str) -> str:
         text = chr(12).join([page.get_text() for page in doc])
     return text
 
-def model_response_gen(prompt:str, task:str = "", provider = "openai", model:str ="gpt-4o", json_output: bool = False, json_schema = SCHEMA_JSON, pdf_val = None, paper_input: bool = False):
+def model_response_gen(prompt:str, task:str = "", provider: Provider = Provider.OPENAI, model:str ="gpt-4o", json_output: bool = False, json_schema = SCHEMA_JSON, pdf_val = None, paper_input: bool = False):
     """
     GPT response generator function.
     Args:
@@ -214,7 +223,7 @@ def model_response_gen(prompt:str, task:str = "", provider = "openai", model:str
             }
         }) 
 
-    client = Provider.provider_client(provider)
+    client = provider.client
     if json_output:
         log_write("llm_query", f"Querying model {model} for JSON output with prompt: {prompt[:25]}...")
         response = client.chat.completions.create(
@@ -243,14 +252,14 @@ def model_response_gen(prompt:str, task:str = "", provider = "openai", model:str
 
     return response.choices[0].message.content
 
-    
-def gen_thmpf_json(thm: str, pf: str, provider = "openai", model: str = "gpt-4o"):
+
+def gen_thmpf_json(thm: str, pf: str, provider: Provider = Provider.OPENAI, model: str = "gpt-4o"):
     response = model_response_gen(
         thmpf_prompt(thm, pf),
         json_output = True, 
         provider = provider,
         model = model
-    )
+    ) or ""
     # response = json.dumps({"x": 1, "y": 2}, indent = 2)  # Placeholder for actual response generation FOR DEBUGGING
     if "no response" in response.lower():
         return {"response" : "No response from model while generating structured proof"}
@@ -263,7 +272,7 @@ def gen_thmpf_json(thm: str, pf: str, provider = "openai", model: str = "gpt-4o"
 
     return output
 
-def check_reprompt(thm: str, pf: str, output: str, provider = "openai", model: str = "gpt-4o"):
+def check_reprompt(thm: str, pf: str, output: str, provider : Provider = Provider.OPENAI, model: str = "gpt-4o"):
     # total_tries is how many times it should re-prompt if JSON does NOT validate
     tries, total_tries = 0, 6
 
@@ -289,7 +298,7 @@ def check_reprompt(thm: str, pf: str, output: str, provider = "openai", model: s
 
             # re-prompt the model with the error message
             output = reprompt_gen_thmpf_json(thm, pf, output, str(e), provider, model)
-        
+
         except Exception as e:
             st.toast(f"Some other error: {e}")
             return {"response" : "No response from model while generating structured proof"}
@@ -301,14 +310,14 @@ def check_reprompt(thm: str, pf: str, output: str, provider = "openai", model: s
 
     return output
 
-def reprompt_gen_thmpf_json(thm: str, pf: str, output: str, error_msg: str, provider = "openai", model: str = "gpt-4o"):
+def reprompt_gen_thmpf_json(thm: str, pf: str, output: str, error_msg: str, provider: Provider = Provider.OPENAI, model: str = "gpt-4o"):
     # re-prompt
     response = model_response_gen(
         thmpf_reprompt(thm, pf, output, error_msg),
         json_output = True, 
         provider = provider,
         model = model
-    )
+    ) or  ""
 
     if "no response" in response.lower():
         return {"response" : "No response from model while generating structured proof"}
@@ -317,7 +326,7 @@ def reprompt_gen_thmpf_json(thm: str, pf: str, output: str, error_msg: str, prov
     output = json.dumps(json.loads(response_cleaned), indent=2)
     return output
 
-def gen_paper_json(paper_text, pdf_input:bool = False, provider = "openai", model: str = "gpt-4o"):
+def gen_paper_json(paper_text, pdf_input:bool = False, provider: Provider = Provider.OPENAI, model: str = "gpt-4o"):
     # st.toast(f"Paper text: {paper_text}, PDF input: {pdf_input}")
     response = model_response_gen(
         prompt = mathpaper_prompt(paper_text, pdf_input)["prompt"],
@@ -327,7 +336,7 @@ def gen_paper_json(paper_text, pdf_input:bool = False, provider = "openai", mode
         model=model,
         paper_input=True,
         pdf_val=paper_text, # the File Object goes from here in case of paper
-    )
+    ) or ""
     # response = json.dumps({"x": 1, "y": 2}, indent = 2)  # Placeholder for actual response generation FOR DEBUGGING
 
     if "no response" in response.lower():

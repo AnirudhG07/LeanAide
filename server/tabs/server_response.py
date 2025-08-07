@@ -1,13 +1,15 @@
-import urllib
 import json
 
 import requests
 import streamlit as st
-from streamlit import session_state as sts
 from dotenv import load_dotenv
+from streamlit import session_state as sts
 
-from serv_utils import TASKS, lean_code_button, get_actual_input, validate_input_type, copy_to_clipboard, log_section, button_clicked, request_server, host_information, lean_code_cleanup
-from logging_utils import log_write, get_env
+from logging_utils import get_env, log_write
+from serv_utils import (TASKS, button_clicked, copy_to_clipboard,
+                        get_actual_input, host_information, lean_code_button,
+                        lean_code_cleanup, log_section, request_server,
+                        validate_input_type)
 
 load_dotenv()
 

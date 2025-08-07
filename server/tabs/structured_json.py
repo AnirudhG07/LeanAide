@@ -3,15 +3,18 @@ import os
 import shutil
 
 import streamlit as st
-from streamlit import session_state as sts
 from dotenv import load_dotenv
 from PIL import Image
+from streamlit import session_state as sts
 from streamlit_sortables import sort_items
 
-from llm_prompts import proof_thm_task_eng, proof_guidelines_prompt
-from llm_response import gen_paper_json, gen_thmpf_json, solution_from_images, get_pdf_id, extract_text_from_pdf, model_response_gen
-from serv_utils import SCHEMA_JSON, HOMEDIR, action_copy_download, preview_text, log_section, request_server
+from llm_prompts import proof_guidelines_prompt, proof_thm_task_eng
+from llm_response import (extract_text_from_pdf, gen_paper_json,
+                          gen_thmpf_json, get_pdf_id, model_response_gen,
+                          solution_from_images)
 from logging_utils import log_write, post_env_args
+from serv_utils import (HOMEDIR, SCHEMA_JSON, action_copy_download,
+                        log_section, preview_text, request_server)
 
 load_dotenv(os.path.join(HOMEDIR, ".env"))
 
@@ -282,13 +285,13 @@ def handle_ai_proof_input(key: str, rewrite: bool = False):
     with st.expander("Theorem Details", expanded = False):
         if sts.server_thm_details:
             if st.checkbox("Edit Theorem Details", value = False):
-                st.thm_details["definitions_used"] = st.text_area(
+                sts.thm_details["definitions_used"] = st.text_area(
                     "Theorem Details: Definitions Used",
                     value=sts.thm_details.get("definitions_used", ""),
                     height=150,
                     help="You can edit the definitions used in the theorem.",
                 )
-                st.thm_details["statement"] = st.text_area(
+                sts.thm_details["statement"] = st.text_area(
                     "Theorem Details: Statement",
                     value=sts.thm_details.get("statement", ""),
                     height=150,

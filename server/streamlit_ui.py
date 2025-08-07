@@ -1,8 +1,10 @@
 import streamlit as st
 from streamlit import session_state as sts
-from llm_response import get_supported_models, provider_info
-from logging_utils import post_env_args
+
 from api_server import HOST, PORT
+from llm_response import Provider
+from logging_utils import post_env_args
+
 # Initialize session state variables
 # Global variables for session state initialization
 
@@ -94,31 +96,25 @@ with st.sidebar:
     st.header("LLM Credentials", divider = "orange")
     with st.expander("Check API Credentials"):
         # Provider selection
-        llm_provider = st.selectbox("Select Provider:", list(provider_info.keys()), index=0)
+        llm_provider = st.selectbox("Select Provider:", list(Provider.__members__), index=0)
         if llm_provider != sts.get("llm_provider", ""):
             sts.llm_provider = llm_provider
             sts.llm_list = []
 
         # Dynamically update API Key and Model fields based on the provider
-        selected_provider = provider_info[sts.llm_provider]
+        selected_provider: Provider = Provider.from_str(sts.llm_provider)
+        if not sts.llm_list:
+            sts.llm_list = Provider.get_supported_models(provider=sts.llm_provider)
 
-        try:
-            if not sts.llm_list:
-                sts.llm_list = get_supported_models(provider=sts.llm_provider)
-        except Exception as e:
-            st.error(f"Error fetching models for {sts.llm_provider}: {e}")
+        api_key_placeholder = "N/A"
+        if selected_provider.api_key != "N/A" and selected_provider.api_key: 
+            api_key_placeholder = f"{selected_provider.api_key[:15]}{'*' * (len(selected_provider.api_key) - 15)}"
 
-        api_key_placeholder = (
-            f"{selected_provider['api_key'][:15]}{'*' * (len(selected_provider['api_key']) - 15)}"
-            if selected_provider["api_key"]
-            else ""
-        )
-
-        sts.llm_api_key = selected_provider["api_key"]
+        sts.llm_api_key = selected_provider.api_key
         received_api_key = st.text_input(
             "API Key:",
             value=api_key_placeholder,
-            type="password",
+            type="password" if selected_provider.api_key != "N/A" and selected_provider.api_key else "default",
             help="Hover to see the key, edit if needed.",
         )
         if received_api_key and received_api_key not in [sts.get("llm_api_key", "Key Not Found"), api_key_placeholder]:
@@ -127,14 +123,14 @@ with st.sidebar:
 
         st.info("The below options are models supported by your API Key.")
         # Model selection text boxes
-        default_model_index = sts.llm_list.index(selected_provider["default_model"]) if selected_provider["default_model"] in sts.llm_list else 0
+        default_model_index = sts.llm_list.index(selected_provider.default_model) if selected_provider.default_model in sts.llm_list else 0
 
-        model_list_help = f"Check out the list of {sts.llm_provider} Models [↗]({selected_provider['models_url']})"
+        model_list_help = f"Check out the list of {sts.llm_provider} Models [↗]({selected_provider.models_url})"
 
         sts.model_leanaide = st.selectbox(
             "Model for LeanAide Code generation:",
             options = sts.llm_list,
-            index = (sts.llm_list.index(selected_provider["default_leanaide_model"]) if selected_provider["default_leanaide_model"] in sts.llm_list else 0),
+            index = (sts.llm_list.index(selected_provider.default_leanaide_model) if selected_provider.default_leanaide_model in sts.llm_list else 0),
             help="Specify the model for LeanAide Codegen. " + model_list_help,
             accept_new_options = True
         )
